@@ -10,6 +10,7 @@ const std = @import("std");
 // stored inside the array nums1. To accommodate this, nums1 has a length of m + n,
 // where the first m elements denote the elements that should be merged, and
 // the last n elements are set to 0 and should be ignored. nums2 has a length of n.
+// https://leetcode.com/problems/merge-sorted-array/
 
 fn merge(nums1: []usize, m: usize, nums2: []usize, n: usize) void {
     var m1 = m;
