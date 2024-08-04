@@ -13,6 +13,10 @@ const std = @import("std");
 // https://leetcode.com/problems/merge-sorted-array/
 
 fn merge(nums1: []usize, m: usize, nums2: []usize, n: usize) void {
+    // Starting at the end of nums1, we select whether to put there last nums1 element or last nums2 element.
+    // Once an element from the end of array is moved to the end of nums1, it's not looked at anymore.
+    // Then we move backwards to th earlier index of nums1 and repeat.
+
     var m1 = m;
     var n1 = n;
     var i = m + n;

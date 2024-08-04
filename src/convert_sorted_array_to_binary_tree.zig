@@ -2,6 +2,10 @@
 // height-balanced binary search tree.
 // https://leetcode.com/problems/convert-sorted-array-to-binary-search-tree/
 
+// answer: take the middle element of nums array, use it as TreeNode value,
+// populate tree left hand side with lower half of nums array,
+// populate tree right hand size with upper half of nums array.
+
 const std = @import("std");
 
 const TreeNode = struct {
