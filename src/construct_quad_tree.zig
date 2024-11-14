@@ -11,10 +11,15 @@ const QuadTree = struct {
     br: ?*QuadTree, // bottom-right
 
     fn init(input: []const []const bool, a: std.mem.Allocator) !*QuadTree {
-        return QuadTree.init_xy(input, 0, 0, input.len, a);
+        return QuadTree.init_dnc(input, a);
     }
 
-    fn init_xy(input: []const []const bool, x: usize, y: usize, n: usize, a: std.mem.Allocator) !*QuadTree {
+    // brute-force
+    fn init_bf(input: []const []const bool, a: std.mem.Allocator) !*QuadTree {
+        return QuadTree.init_xy_bf(input, 0, 0, input.len, a);
+    }
+
+    fn init_xy_bf(input: []const []const bool, x: usize, y: usize, n: usize, a: std.mem.Allocator) !*QuadTree {
         var qt = try a.create(QuadTree);
         qt.tl = null;
         qt.tr = null;
@@ -35,11 +40,47 @@ const QuadTree = struct {
             }
         }
         if (!qt.isLeaf) {
-            qt.tl = try QuadTree.init_xy(input, x, y, n / 2, a);
-            qt.tr = try QuadTree.init_xy(input, x + n / 2, y, n / 2, a);
-            qt.bl = try QuadTree.init_xy(input, x, y + n / 2, n / 2, a);
-            qt.br = try QuadTree.init_xy(input, x + n / 2, y + n / 2, n / 2, a);
+            qt.tl = try QuadTree.init_xy_bf(input, x, y, n / 2, a);
+            qt.tr = try QuadTree.init_xy_bf(input, x + n / 2, y, n / 2, a);
+            qt.bl = try QuadTree.init_xy_bf(input, x, y + n / 2, n / 2, a);
+            qt.br = try QuadTree.init_xy_bf(input, x + n / 2, y + n / 2, n / 2, a);
         }
+        return qt;
+    }
+
+    // divide-and-conquer
+    fn init_dnc(input: []const []const bool, a: std.mem.Allocator) !*QuadTree {
+        return QuadTree.init_xy_dnc(input, 0, 0, input.len, a);
+    }
+
+    fn init_xy_dnc(input: []const []const bool, x: usize, y: usize, n: usize, a: std.mem.Allocator) !*QuadTree {
+        var qt = try a.create(QuadTree);
+        qt.tl = null;
+        qt.tr = null;
+        qt.bl = null;
+        qt.br = null;
+        const v = input[x][y];
+        qt.val = v;
+        qt.isLeaf = true;
+        if (n == 1) {
+            return qt;
+        }
+
+        const tl = try QuadTree.init_xy_dnc(input, x, y, n / 2, a);
+        const tr = try QuadTree.init_xy_dnc(input, x + n / 2, y, n / 2, a);
+        const bl = try QuadTree.init_xy_dnc(input, x, y + n / 2, n / 2, a);
+        const br = try QuadTree.init_xy_dnc(input, x + n / 2, y + n / 2, n / 2, a);
+
+        if (tl.isLeaf and tr.isLeaf and bl.isLeaf and br.isLeaf and tl.val == tr.val and tr.val == bl.val and bl.val == br.val) {
+            // here we sould free tl,tr,bl,br because they're not used anymore, unless we're using Arena allocator
+            return qt;
+        }
+
+        qt.isLeaf = false;
+        qt.tl = tl;
+        qt.tr = tr;
+        qt.bl = bl;
+        qt.br = br;
         return qt;
     }
 
@@ -157,4 +198,22 @@ test "3" {
     ;
 
     try std.testing.expectEqualStrings(expected, str);
+}
+
+test "random" {
+    const rnd = std.crypto.random;
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    const a = arena.allocator();
+    defer arena.deinit();
+
+    const n = 1024;
+    const input = try a.alloc([]bool, n);
+    for (0..n) |i| {
+        input[i] = try a.alloc(bool, n);
+        for (0..n) |j| {
+            input[i][j] = if (rnd.intRangeAtMost(u8, 0, 10) > 9) true else false;
+        }
+    }
+
+    _ = try QuadTree.init(input, a);
 }
