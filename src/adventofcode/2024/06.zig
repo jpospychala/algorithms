@@ -2,116 +2,219 @@ const std = @import("std");
 
 const MoveError = error{EndOfMap};
 
-const State = struct {
-    map: []const u8,
-    width: usize,
-    height: usize,
+const Position = struct {
     x: isize,
     y: isize,
     dx: i8,
     dy: i8,
-    distinctPositions: std.ArrayList(usize),
+
+    fn copy(pos: Position) Position {
+        return .{
+            .x = pos.x,
+            .y = pos.y,
+            .dx = pos.dx,
+            .dy = pos.dy,
+        };
+    }
+};
+
+const State = struct {
+    map: []u8,
+    width: usize,
+    height: usize,
 
     fn init(input: []const u8, a: std.mem.Allocator) !State {
         const width = std.mem.indexOfScalar(u8, input, '\n').?;
         const height = input.len / (width + 1);
-        const idx = std.mem.indexOfAny(u8, input, "<>^v").?;
-        const y: isize = @intCast(@divFloor(idx, width + 1));
-        const x: isize = @intCast(@mod(idx, width + 1));
-        const dx: i8 = @as(i8, @intCast(std.mem.indexOfScalar(u8, "< >", input[idx]) orelse 1)) - 1;
-        const dy: i8 = @as(i8, @intCast(std.mem.indexOfScalar(u8, "^ v", input[idx]) orelse 1)) - 1;
-        var distinctPositions = std.ArrayList(usize).init(a);
-        try distinctPositions.append(idx);
+        const buf = try a.alloc(u8, input.len);
+        @memcpy(buf, input);
 
         return .{
-            .map = input,
+            .map = buf,
             .width = width,
             .height = height,
+        };
+    }
+
+    fn startPosition(state: *State) Position {
+        const idx = std.mem.indexOfAny(u8, state.map, "<>^v").?;
+        const x: isize = @intCast(@mod(idx, state.width + 1));
+        const y: isize = @intCast(@divFloor(idx, state.width + 1));
+        const dx: i8 = @as(i8, @intCast(std.mem.indexOfScalar(u8, "< >", state.map[idx]) orelse 1)) - 1;
+        const dy: i8 = @as(i8, @intCast(std.mem.indexOfScalar(u8, "^ v", state.map[idx]) orelse 1)) - 1;
+
+        return .{
             .x = x,
             .y = y,
             .dx = dx,
             .dy = dy,
-            .distinctPositions = distinctPositions,
         };
     }
 
-    fn deinit(state: *State) void {
-        state.distinctPositions.deinit();
+    fn deinit(state: *State, a: std.mem.Allocator) void {
+        a.free(state.map);
     }
 
-    fn run(state: *State) !void {
-        while (true) {
-            state.move() catch {
-                return;
-            };
-            const idx = state.idxOf(state.x, state.y);
-            _ = std.mem.indexOfScalar(usize, state.distinctPositions.items, idx) orelse {
-                try state.distinctPositions.append(idx);
-            };
-            std.debug.print("{d}x{d} {d}\n", .{ state.x, state.y, state.distinctPositions.items.len });
-        }
-    }
-
-    fn move(state: *State) MoveError!void {
-        const x = state.x + state.dx;
-        const y = state.y + state.dy;
-
+    fn peekNext(state: *State, pos: Position) MoveError!Position {
+        const x = pos.x + pos.dx;
+        const y = pos.y + pos.dy;
+        //std.debug.print("({d} {d})/({d}, {d})\n", .{ x, y, state.width, state.height });
         if (x < 0 or x >= state.width or y < 0 or y >= state.height) {
+            //  std.debug.print("end of map\n", .{});
             return MoveError.EndOfMap;
         }
 
-        const c = state.map[state.idxOf(x, y)];
-        if (c == '#') { // obstacle, should turn right
+        return Position{
+            .x = x,
+            .y = y,
+            .dx = pos.dx,
+            .dy = pos.dy,
+        };
+    }
+
+    fn move(state: *State, pos: *Position) MoveError!void {
+        const nextPos = try peekNext(state, pos.*);
+        const idx = state.idxOf(nextPos.x, nextPos.y);
+        const c = state.map[idx];
+        if (c == '#' or c == 'O') { // obstacle, should turn right
             //dx dy => dx dy
             //-1  0 =>  0 -1
             // 1  0 =>  0  1
             // 0 -1 =>  1  0
             // 0  1 => -1  0
-            if (state.dx != 0) {
-                state.dy = state.dx;
-                state.dx = 0;
+            if (pos.dx != 0) {
+                pos.dy = pos.dx;
+                pos.dx = 0;
             } else {
-                state.dx = -state.dy;
-                state.dy = 0;
+                pos.dx = -pos.dy;
+                pos.dy = 0;
             }
         } else { // can move forward
-            state.x = x;
-            state.y = y;
+            pos.x = nextPos.x;
+            pos.y = nextPos.y;
+            state.map[idx] = '*';
         }
     }
 
+    fn isInfiniteLoop(state: *State, start: Position) bool {
+        var pos = start.copy();
+        var count: usize = 10000; // naive infinite loop detection
+        while (true) {
+            state.move(&pos) catch {
+                return false;
+            };
+            if (pos.x == start.x and pos.y == start.y and pos.dx == start.dx and pos.dy == start.dy) {
+                return true; // loop
+            }
+            count -= 1;
+            if (count == 0) {
+                return true; // infinite loop
+            }
+        }
+    }
+
+    fn set(state: *State, p: Position, c: u8) void {
+        const idx = state.idxOf(p.x, p.y);
+        state.map[idx] = c;
+    }
+
+    fn get(state: *State, p: Position) u8 {
+        return state.map[state.idxOf(p.x, p.y)];
+    }
+
     fn idxOf(state: *State, x: isize, y: isize) usize {
-        return @as(usize, @intCast(y)) * state.width + @as(usize, @intCast(x));
+        return @as(usize, @intCast(y)) * (state.width + 1) + @as(usize, @intCast(x));
+    }
+
+    fn dump(state: *State) void {
+        std.debug.print("Dump\n{s}\n", .{state.map});
+    }
+
+    fn clearPath(state: *State) void {
+        for (0..state.map.len) |i| {
+            if (state.map[i] == '*') {
+                state.map[i] = '.';
+            }
+        }
     }
 };
 
-fn task6(input: []const u8, a: std.mem.Allocator) !usize {
+fn task6a_distinctPositions(input: []const u8, a: std.mem.Allocator) !usize {
     var state = try State.init(input, a);
-    defer state.deinit();
-    try state.run();
+    var pos = state.startPosition();
+    defer state.deinit(a);
+    var distinctPositions = std.ArrayList(usize).init(a);
+    defer distinctPositions.deinit();
 
-    return state.distinctPositions.items.len;
+    while (true) {
+        const idx = state.idxOf(pos.x, pos.y);
+        _ = std.mem.indexOfScalar(usize, distinctPositions.items, idx) orelse {
+            try distinctPositions.append(idx);
+        };
+        state.move(&pos) catch {
+            break;
+        };
+    }
+
+    return distinctPositions.items.len;
+}
+
+fn task6b_findLoops(input: []const u8, a: std.mem.Allocator) !usize {
+    var state = try State.init(input, a);
+    defer state.deinit(a);
+    const start = state.startPosition();
+    var pos = start.copy();
+    var distinctPositions = std.ArrayList(usize).init(a);
+    defer distinctPositions.deinit();
+
+    while (true) {
+        // if next position is not obstacle, put obstacle on it
+        // run until end of route or startingpoint
+        // if startingpoint, then inc loopsCount
+        // get back to startpoint
+        // remove obstacle
+        // move
+
+        const nextPos = state.peekNext(pos) catch {
+            break; // end of route
+        };
+        const c = state.get(nextPos);
+        if (c == '.' or c == '*') {
+            state.set(nextPos, 'O');
+            if (state.isInfiniteLoop(start)) {
+                const idx = state.idxOf(nextPos.x, nextPos.y);
+                _ = std.mem.indexOfScalar(usize, distinctPositions.items, idx) orelse {
+                    try distinctPositions.append(idx);
+                };
+            }
+
+            state.set(nextPos, c);
+        }
+        try state.move(&pos);
+    }
+
+    return distinctPositions.items.len;
 }
 
 test "task a" {
-    const actual = try task6(testInput(), std.testing.allocator);
+    const actual = try task6a_distinctPositions(testInput(), std.testing.allocator);
     try std.testing.expectEqual(41, actual);
 }
 
-//test "task a, final input" {
-//    const actual = try task6(finalText(), std.testing.allocator);
-//    try std.testing.expectEqual(5329, actual);
-//}
+test "task a, final input" {
+    const actual = try task6a_distinctPositions(finalText(), std.testing.allocator);
+    try std.testing.expectEqual(5516, actual);
+}
 
-//test "task b" {
-//    const actual = try task5b(testInput(), std.testing.allocator);
-//    try std.testing.expectEqual(123, actual);
-//}
-//
-//test "task b, final input" {
-//    const actual = try task5b(finalText(), std.testing.allocator);
-//    try std.testing.expectEqual(5833, actual);
-//}
+test "task b" {
+    const actual = try task6b_findLoops(testInput(), std.testing.allocator);
+    try std.testing.expectEqual(6, actual);
+}
+
+test "task b, final input" {
+    const actual = try task6b_findLoops(finalText(), std.testing.allocator);
+    try std.testing.expectEqual(2008, actual);
+}
 
 fn testInput() []const u8 {
     return 
