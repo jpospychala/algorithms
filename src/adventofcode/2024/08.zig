@@ -3,6 +3,18 @@ const std = @import("std");
 const Point = struct {
     x: usize,
     y: usize,
+
+    fn copy(p: Point) Point {
+        return .{
+            .x = p.x,
+            .y = p.y,
+        };
+    }
+
+    fn set(p: *Point, p2: Point) void {
+        p.x = p2.x;
+        p.y = p2.y;
+    }
 };
 
 const Map = struct {
@@ -53,8 +65,6 @@ fn toIsize(a: usize) isize {
     return @as(isize, @intCast(a));
 }
 
-//pt1-pt2+pt1   pt1-    pt2     +(pt2-pt1)
-//pt2+(pt2-pt1)   pt2-    pt1     pt1+(-pt2+pt1)
 fn antinodes(buf: []const u8, a: std.mem.Allocator) !usize {
     const map = try Map.init(buf, a);
     defer map.deinit(a);
@@ -72,25 +82,13 @@ fn antinodes(buf: []const u8, a: std.mem.Allocator) !usize {
                         toIsize(pt1.x) - toIsize(pt2.x) + toIsize(pt1.x),
                         toIsize(pt1.y) - toIsize(pt2.y) + toIsize(pt1.y),
                     )) |pk| {
-                        const offs = map.toOffset(pk);
-                        _ = std.mem.indexOfScalar(usize, list.items, offs) orelse {
-                            if (map.buf[offs] == '.') {
-                                //      map.buf[offs] = '#';
-                            }
-                            try list.append(offs);
-                        };
+                        try addUnique(&list, map.toOffset(pk));
                     }
                     if (map.mkPoint(
                         toIsize(pt2.x) + toIsize(pt2.x) - toIsize(pt1.x),
                         toIsize(pt2.y) + toIsize(pt2.y) - toIsize(pt1.y),
                     )) |pk| {
-                        const offs = map.toOffset(pk);
-                        _ = std.mem.indexOfScalar(usize, list.items, offs) orelse {
-                            if (map.buf[offs] == '.') {
-                                //       map.buf[offs] = '#';
-                            }
-                            try list.append(offs);
-                        };
+                        try addUnique(&list, map.toOffset(pk));
                     }
                 }
             }
@@ -101,14 +99,59 @@ fn antinodes(buf: []const u8, a: std.mem.Allocator) !usize {
     return list.items.len;
 }
 
-fn findAntennas(map: Map, a: std.mem.Allocator) ![]usize {
-    var list = std.ArrayList(Point).init(a);
-    for (map.buf, 0..) |c, idx| {
-        if (c != '.') {
-            list.append(idx);
+fn addUnique(list: *std.ArrayList(usize), offs: usize) !void {
+    _ = std.mem.indexOfScalar(usize, list.items, offs) orelse {
+        try list.append(offs);
+    };
+}
+
+fn antinodes2(buf: []const u8, a: std.mem.Allocator) !usize {
+    const map = try Map.init(buf, a);
+    defer map.deinit(a);
+    var list = std.ArrayList(usize).init(a);
+    defer list.deinit();
+
+    for (map.buf, 0..) |a1, idx1| {
+        if (a1 != '.' and a1 != '#' and a1 != '\n') {
+            const pt1 = map.toPoint(idx1);
+            for (map.buf, 0..) |a2, idx2| {
+                if (a2 == a1 and idx2 != idx1) {
+                    // found two different antennas of same type
+                    const pt2 = map.toPoint(idx2);
+                    try addUnique(&list, map.toOffset(pt1));
+                    try addUnique(&list, map.toOffset(pt2));
+                    var ptn = pt1.copy();
+                    while (map.mkPoint(
+                        toIsize(ptn.x) - toIsize(pt2.x) + toIsize(pt1.x),
+                        toIsize(ptn.y) - toIsize(pt2.y) + toIsize(pt1.y),
+                    )) |pk| {
+                        const o = map.toOffset(pk);
+                        if (map.buf[o] == '.') {
+                            map.buf[o] = '#';
+                        }
+                        try addUnique(&list, map.toOffset(pk));
+
+                        ptn.set(pk);
+                    }
+                    ptn.set(pt2);
+                    while (map.mkPoint(
+                        toIsize(ptn.x) + toIsize(pt2.x) - toIsize(pt1.x),
+                        toIsize(ptn.y) + toIsize(pt2.y) - toIsize(pt1.y),
+                    )) |pk| {
+                        const o = map.toOffset(pk);
+                        if (map.buf[o] == '.') {
+                            map.buf[o] = '#';
+                        }
+                        try addUnique(&list, map.toOffset(pk));
+                        ptn.set(pk);
+                    }
+                }
+            }
         }
     }
-    return try list.toOwnedSlice();
+
+    std.debug.print("Debug:\n{s}\n{d}\n", .{ map.buf, list.items.len });
+    return list.items.len;
 }
 
 test "8 part one" {
@@ -119,6 +162,33 @@ test "8 part one" {
 test "8 part one final" {
     const actual = try antinodes(finalInput(), std.testing.allocator);
     try std.testing.expectEqual(256, actual);
+}
+
+test "8 part two" {
+    const actual = try antinodes2(testInput(), std.testing.allocator);
+    try std.testing.expectEqual(34, actual);
+}
+
+test "8 part two final" {
+    const actual = try antinodes2(finalInput(), std.testing.allocator);
+    try std.testing.expectEqual(1005, actual);
+}
+
+test "antinodes2 1" {
+    const in =
+        \\T.........
+        \\...T......
+        \\.T........
+        \\..........
+        \\..........
+        \\..........
+        \\..........
+        \\..........
+        \\..........
+        \\..........
+    ;
+    const actual = try antinodes2(in, std.testing.allocator);
+    try std.testing.expectEqual(9, actual);
 }
 
 test "antinodes 1" {
