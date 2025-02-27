@@ -70,6 +70,13 @@ const Board = struct {
             self.q[qx.?][qy.?] += 1;
         }
     }
+
+    fn clear(self: *@This()) void {
+        self.q[0][0] = 0;
+        self.q[0][1] = 0;
+        self.q[1][0] = 0;
+        self.q[1][1] = 0;
+    }
 };
 
 fn calculateSafetyFactor(
@@ -82,11 +89,53 @@ fn calculateSafetyFactor(
         var robot = try Robot.parse(line);
         robot.move(board, seconds);
         board.addToQuadrant(robot.x, robot.y);
-        std.debug.print("{any} {any}\n", .{ board, robot });
     }
 
     const safetyFactor = board.q[0][0] * board.q[1][0] * board.q[1][1] * board.q[0][1];
     return safetyFactor;
+}
+
+fn calculateMinSafetyFactor(in: []const u8, board: *Board, seconds: usize, a: std.mem.Allocator) !usize {
+    var robots = std.ArrayList(Robot).init(a);
+    defer robots.deinit();
+
+    var tok = std.mem.tokenizeScalar(u8, in, '\n');
+    while (tok.next()) |line| {
+        const robot = try Robot.parse(line);
+        try robots.append(robot);
+    }
+
+    var map = try a.alloc(u8, (board.w + 1) * board.h);
+    defer a.free(map);
+
+    var bestSec: usize = 0;
+    var minSF: usize = 0;
+
+    for (0..seconds) |i| {
+        clear(map, board.w);
+        board.clear();
+        for (robots.items) |*r| {
+            r.move(board, 1);
+
+            board.addToQuadrant(r.x, r.y);
+            map[r.x + r.y * (board.w + 1)] = '*';
+        }
+
+        const safetyFactor = board.q[0][0] * board.q[1][0] * board.q[1][1] * board.q[0][1];
+        if (i == 0 or safetyFactor < minSF) {
+            bestSec = i + 1;
+            minSF = safetyFactor;
+            std.debug.print("{s}\n{d}\n", .{ map, i });
+        }
+    }
+
+    return bestSec;
+}
+
+fn clear(map: []u8, w: usize) void {
+    for (0..map.len) |i| {
+        map[i] = if (@mod(i, w + 1) == w) '\n' else '.';
+    }
 }
 
 test "calculate safety factor" {
@@ -116,6 +165,14 @@ test "finalInput" {
 
     const actual = try calculateSafetyFactor(in, &board, 100);
     try std.testing.expectEqual(216027840, actual);
+}
+
+test "finalInput part B" {
+    const in = finalInput();
+    var board = Board{ .w = 101, .h = 103 };
+
+    const actual = try calculateMinSafetyFactor(in, &board, 10000, std.testing.allocator);
+    try std.testing.expectEqual(6876, actual);
 }
 
 fn finalInput() []const u8 {
